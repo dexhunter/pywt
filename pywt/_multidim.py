@@ -186,6 +186,20 @@ def dwtn(data, wavelet, mode='symmetric', axes=None):
 
 
 def _fix_coeffs(coeffs):
+    # Check ordinary dictionaries in one pass; retain full validation otherwise.
+    if type(coeffs) is dict:
+        key_length = None
+        for key, value in coeffs.items():
+            if type(key) is not str or value is None or key.strip('ad'):
+                break
+            if key_length is None:
+                key_length = len(key)
+            elif len(key) != key_length:
+                break
+        else:
+            asarray = np.asarray
+            return {k: asarray(v) for k, v in coeffs.items()}
+
     missing_keys = [k for k, v in coeffs.items() if v is None]
     if missing_keys:
         raise ValueError(
@@ -196,15 +210,16 @@ def _fix_coeffs(coeffs):
             "use\n"
             "\tcoeffs[key] = np.zeros_like(coeffs[key])\n")
 
+    allowed_chars = {'a', 'd'}
     invalid_keys = [k for k, v in coeffs.items() if
-                    not set(k) <= set('ad')]
+                    not set(k) <= allowed_chars]
     if invalid_keys:
         raise ValueError(
             "The following invalid keys were found in the detail "
             f"coefficient dictionary: {invalid_keys}.")
 
-    key_lengths = [len(k) for k in coeffs]
-    if len(np.unique(key_lengths)) > 1:
+    key_lengths = {len(k) for k in coeffs}
+    if len(key_lengths) > 1:
         raise ValueError(
             "All detail coefficient names must have equal length.")
 
