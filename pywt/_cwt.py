@@ -6,7 +6,7 @@ from ._extensions._pywt import (
     Wavelet,
     _check_dtype,
 )
-from ._functions import integrate_wavelet, scale2frequency
+from ._functions import _integrate, integrate_wavelet, scale2frequency
 from ._utils import AxisError
 
 __all__ = ["cwt"]
@@ -141,7 +141,17 @@ def cwt(data, scales, wavelet, sampling_period=1., method='conv', axis=-1,
     dt_out = dt_cplx if wavelet.complex_cwt else dt
     out = np.empty((np.size(scales),) + data.shape, dtype=dt_out)
 
-    int_psi, x = integrate_wavelet(wavelet, precision=precision)
+    # Custom inputs may change the wavelet while the transform is running.
+    reuse_samples = (type(wavelet) is ContinuousWavelet
+                     and type(precision) is int and type(axis) is int
+                     and type(method) is str and type(scales) is np.ndarray
+                     and scales.dtype.kind in 'buifc')
+    if reuse_samples:
+        psi, wavelet_x = wavelet.wavefun(precision)
+        int_psi = _integrate(psi, wavelet_x[1] - wavelet_x[0])
+        x = wavelet_x
+    else:
+        int_psi, x = integrate_wavelet(wavelet, precision=precision)
     int_psi = np.conj(int_psi) if wavelet.complex_cwt else int_psi
 
     # convert int_psi, x to the same precision as the data
@@ -224,7 +234,16 @@ def cwt(data, scales, wavelet, sampling_period=1., method='conv', axis=-1,
             coef = coef.swapaxes(axis, -1)
         out[i, ...] = coef
 
-    frequencies = scale2frequency(wavelet, scales, precision)
+    if reuse_samples:
+        # Use the original samples, before conversion to the data precision.
+        domain = float(wavelet_x[-1] - wavelet_x[0])
+        assert domain > 0
+        index = np.argmax(abs(np.fft.fft(psi)[1:])) + 2
+        if index > len(psi) / 2:
+            index = len(psi) - index + 2
+        frequencies = (1.0 / (domain / (index - 1))) / scales
+    else:
+        frequencies = scale2frequency(wavelet, scales, precision)
     if np.isscalar(frequencies):
         frequencies = np.array([frequencies])
     frequencies /= sampling_period
